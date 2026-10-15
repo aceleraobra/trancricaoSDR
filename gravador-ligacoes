@@ -141,7 +141,7 @@
 /* ============================== Configuração ============================== */
 const CFG = {
   // URL do web app do Apps Script (Implantar → Gerenciar implantações → copiar a URL que termina em /exec)
-  GAS_URL: 'COLE_AQUI_A_URL_DO_WEB_APP',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbzvCKX2dND_9b3sZhN8LK15ci4LxpJaYERZWAbJtaAFE_25rNooqbGLsn146aRp8jfenw/exec',
   // A transcrição é feita no fim. Ligações longas são divididas em blocos para não estourar
   // o tempo limite do Apps Script: ligação de até 10 min = 1 requisição ao Gemini.
   BLOCO_MS: 10 * 60 * 1000,
