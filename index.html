@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gravador de ligações</title>
+  <style>
+    :root {
+      --bg: #f5f6f8; --card: #ffffff; --texto: #1d2129; --suave: #667085; --borda: #e2e5ea;
+      --primaria: #1a5ac0; --perigo: #c0392b; --ok: #15803d; --sdr: #1a5ac0; --lead: #15803d;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #12141a; --card: #1b1e26; --texto: #e7e9ee; --suave: #9aa3b2; --borda: #2c313c;
+        --primaria: #5b8def; --perigo: #ef6b5b; --ok: #4ade80; --sdr: #7aa5f5; --lead: #4ade80;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--texto); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 15px; margin: 0 0 12px; color: var(--suave); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+    .sub { color: var(--suave); margin: 0 0 20px; }
+    .card { background: var(--card); border: 1px solid var(--borda); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+    .grade { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 560px) { .grade { grid-template-columns: 1fr; } }
+    label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--suave); }
+    input[type=text], input[type=tel], select {
+      font: inherit; color: var(--texto); background: var(--bg); border: 1px solid var(--borda);
+      border-radius: 8px; padding: 9px 11px;
+    }
+    .dica { font-size: 12px; opacity: .8; }
+    .check { flex-direction: row; align-items: center; gap: 8px; margin-top: 14px; color: var(--texto); font-size: 14px; }
+    .medidor { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 12px; margin-bottom: 10px; font-size: 14px; }
+    .barra { height: 10px; background: var(--bg); border: 1px solid var(--borda); border-radius: 99px; overflow: hidden; }
+    .barra div { height: 100%; width: 0; transition: width .08s linear; }
+    #nivel-SDR { background: var(--sdr); }
+    #nivel-Lead { background: var(--lead); }
+    .acoes { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; align-items: center; }
+    button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    #btnIniciar { background: var(--primaria); color: #fff; }
+    #btnParar { background: var(--perigo); color: #fff; }
+    #btnNova { background: var(--ok); color: #fff; }
+    .descartar { background: transparent; color: var(--perigo); border: 1px solid var(--perigo); }
+    #btnSalvar { background: var(--primaria); color: #fff; }
+    a.botao { display: inline-block; text-decoration: none; font-weight: 600; border-radius: 8px; padding: 10px 16px; }
+    .secundario { background: transparent; color: var(--primaria); border: 1px solid var(--borda); }
+    #tempo { font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 600; margin-left: auto; }
+    #status { margin: 12px 0 0; font-size: 14px; color: var(--suave); }
+    #status.erro { color: var(--perigo); }
+    #status.ok { color: var(--ok); }
+    #fila { font-size: 13px; color: var(--suave); }
+    /* Modo janela flutuante: layout compacto */
+    body.modo-pip main { padding: 12px 12px 16px; }
+    body.modo-pip h1, body.modo-pip .sub, body.modo-pip .aviso { display: none; }
+    body.modo-pip .card { padding: 12px; margin-bottom: 10px; }
+    body.modo-pip .grade { grid-template-columns: 1fr; gap: 8px; }
+    body.modo-pip .medidor { grid-template-columns: 110px 1fr; font-size: 13px; margin-bottom: 6px; }
+    body.modo-pip button, body.modo-pip a.botao { padding: 8px 12px; font-size: 14px; }
+    body.modo-pip #tempo { font-size: 18px; }
+    body.modo-pip #transcricao { max-height: 180px; font-size: 13px; }
+    .aviso { background: #fff4e5; color: #7a4b00; border: 1px solid #f5c26b; border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 14px; }
+    @media (prefers-color-scheme: dark) { .aviso { background: #3a2c12; color: #f5d08a; border-color: #6b5222; } }
+    #transcricao { max-height: 420px; overflow-y: auto; font-size: 14px; }
+    #transcricao p { margin: 0 0 8px; }
+    .resumo { border-left: 3px solid var(--primaria); padding: 4px 0 4px 12px; margin-bottom: 14px; }
+    .resumo h3 { margin: 0 0 6px; font-size: 14px; }
+    .resumo ul { margin: 6px 0 0; padding-left: 18px; }
+    .t { color: var(--suave); font-size: 12px; font-variant-numeric: tabular-nums; margin-right: 6px; }
+    .f-SDR { color: var(--sdr); font-weight: 700; }
+    .f-Lead { color: var(--lead); font-weight: 700; }
+    .vazio { color: var(--suave); font-style: italic; }
+    a { color: var(--primaria); }
+    .rodape { text-align: center; font-size: 12px; margin-top: 8px; }
+    body.modo-pip .rodape { display: none; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Gravador de ligações</h1>
+  <p class="sub">Capta o seu microfone (SDR) e o áudio da aba da Clint (Lead), salva o áudio no Google Drive e a transcrição numa nova guia do Google Docs.</p>
+
+  <div id="aviso" class="aviso" hidden></div>
+
+  <section class="card" id="cardAcesso" hidden>
+    <label>Código de acesso
+      <input type="password" id="codigoAcesso" autocomplete="off" placeholder="Peça o código ao gestor">
+    </label>
+    <div class="acoes">
+      <button id="btnEntrar">Entrar</button>
+      <span class="dica">O código fica salvo neste navegador; você só digita uma vez.</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="grade">
+      <label>Nome do lead<input type="text" id="lead" autocomplete="off"></label>
+      <label>Telefone<input type="tel" id="telefone" autocomplete="off"></label>
+      <label>SDR * <span class="dica">(obrigatório para salvar)</span>
+        <select id="sdr">
+          <option value="">Selecione…</option>
+          <option>Arthur</option>
+          <option>João</option>
+          <option>Ampese</option>
+          <option>Carlos</option>
+          <option>Luan</option>
+          <option>Eduardo</option>
+        </select>
+      </label>
+    </div>
+    <label class="check"><input type="checkbox" id="transcrever" checked> Transcrever esta ligação (desmarque para só gravar o áudio)</label>
+  </section>
+
+  <section class="card">
+    <div class="medidor"><span>SDR (microfone)</span><div class="barra"><div id="nivel-SDR"></div></div></div>
+    <div class="medidor"><span>Lead (aba da Clint)</span><div class="barra"><div id="nivel-Lead"></div></div></div>
+    <div class="acoes">
+      <button id="btnIniciar">Iniciar gravação</button>
+      <button id="btnParar" disabled>Encerrar e salvar</button>
+      <button id="btnDescartar" class="descartar" hidden>Descartar</button>
+      <button id="btnSalvar" hidden>Salvar ligação</button>
+      <button id="btnNova" hidden>Nova chamada</button>
+      <button id="btnRecuperar" class="secundario" hidden>Salvar transcrição pendente</button>
+      <a id="btnBaixar" class="secundario botao" hidden download>Baixar áudio</a>
+      <button id="btnPip" class="secundario" title="Mantém o gravador por cima de todas as janelas">PiP</button>
+      <span id="tempo">00:00</span>
+    </div>
+    <p id="status">Pronto. Use fone de ouvido para o microfone não captar a voz do lead.</p>
+    <p id="fila"></p>
+  </section>
+
+  <section class="card">
+    <h2>Resumo e transcrição</h2>
+    <div id="transcricao"><p class="vazio">A transcrição e o resumo para o closer são feitos ao encerrar a ligação.</p></div>
+  </section>
+  <p class="rodape"><a href="#" id="lnkTrocarCodigo">Trocar código de acesso</a></p>
+</main>
+
+<script>
+/* ============================== Configuração ============================== */
+const CFG = {
+  // URL do web app do Apps Script (Implantar → Gerenciar implantações → copiar a URL que termina em /exec)
+  GAS_URL: 'COLE_AQUI_A_URL_DO_WEB_APP',
+  // A transcrição é feita no fim. Ligações longas são divididas em blocos para não estourar
+  // o tempo limite do Apps Script: ligação de até 10 min = 1 requisição ao Gemini.
+  BLOCO_MS: 10 * 60 * 1000,
+  LIMIAR_VOZ: 0.015,    // RMS mínimo para considerar que houve voz no bloco
+  BITRATE: 16000,       // 16 kbps em Opus: suficiente para transcrever voz e deixa o envio leve
+  BITRATE_AUDIO: 48000, // arquivo completo em estéreo: SDR à esquerda, Lead à direita
+  PARTE_UPLOAD: 4 * 1024 * 1024  // envio ao Drive em partes de 4 MB (múltiplo de 256 KB)
+};
+const CHAVE_BACKUP = 'gravador_ligacao_pendente';
+
+/* ============================== Estado ============================== */
+let janelaPip = null;  // janela flutuante (Document Picture-in-Picture), quando aberta
+const $ = id => (janelaPip && janelaPip.document.getElementById(id)) || document.getElementById(id);
+const confirmar = msg => { window.focus(); return window.confirm(msg); };
+const estado = {
+  ativo: false, inicio: 0, inicioData: null, ctx: null,
+  streams: [], canais: [], segmentos: [],
+  pendentes: 0, erros: 0, relogio: null, meta: null,
+  transcrever: true, gravacao: null,
+  aguardandoDados: false, blobAudio: null,
+  chamadaId: 0, descartada: false,
+  bloco: null, blocoFinal: null, fila: Promise.resolve()
+};
+
+/* ============================== Captura ============================== */
+async function iniciar() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    return status('Este navegador não suporta captura de aba. Use Chrome ou Edge no computador.', 'erro');
+  }
+
+  $('btnIniciar').disabled = true;
+  // Criado ainda dentro do clique para o navegador permitir o áudio
+  estado.ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+  try {
+    // 1º a aba: a escolha de aba exige que o clique seja recente
+    status('Escolha a aba da Clint e marque "Compartilhar áudio da aba".');
+    const tela = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: 'browser' },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+      preferCurrentTab: false,
+      selfBrowserSurface: 'exclude',
+      surfaceSwitching: 'exclude',
+      systemAudio: 'exclude'
+    });
+    estado.streams.push(tela);
+
+    const audioAba = tela.getAudioTracks();
+    if (!audioAba.length) {
+      throw new Error('A aba foi compartilhada sem áudio. Tente de novo e marque "Compartilhar áudio da aba".');
+    }
+    // Se o usuário clicar em "Parar compartilhamento", encerra a gravação
+    tela.getTracks().forEach(t => t.addEventListener('ended', () => estado.ativo && parar()));
+
+    // 2º o microfone
+    status('Permita o acesso ao microfone.');
+    const mic = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    });
+    estado.streams.push(mic);
+
+    await estado.ctx.resume();
+
+    estado.ativo = true;
+    estado.inicio = performance.now();
+    estado.inicioData = new Date();
+    estado.segmentos = [];
+    estado.erros = 0;
+    estado.transcrever = $('transcrever').checked;
+    estado.chamadaId++;
+    estado.descartada = false;
+    // Nome, telefone e SDR são lidos só ao salvar (podem ser preenchidos durante a ligação)
+    estado.meta = {
+      inicioISO: estado.inicioData.toISOString(),
+      transcrito: estado.transcrever
+    };
+    $('btnBaixar').hidden = true;
+
+    criarCanal('SDR', new MediaStream(mic.getAudioTracks()));
+    criarCanal('Lead', new MediaStream(audioAba));
+    iniciarGravacaoCompleta(new MediaStream(mic.getAudioTracks()), new MediaStream(audioAba));
+    estado.fila = Promise.resolve();
+    estado.blocoFinal = null;
+    if (estado.transcrever) iniciarBloco();
+
+    estado.relogio = setInterval(() => {
+      $('tempo').textContent = mmss((performance.now() - estado.inicio) / 1000);
+    }, 500);
+
+    $('transcrever').disabled = true;   // nome, telefone e SDR continuam editáveis
+    $('btnParar').disabled = false;
+    $('btnDescartar').hidden = false;
+    $('transcricao').innerHTML = estado.transcrever
+      ? '<p class="vazio">Gravando… a transcrição e o resumo saem ao encerrar.</p>'
+      : '<p class="vazio">Gravando só o áudio (sem transcrição).</p>';
+    status('Gravando os dois canais.' +
+      ' Preencha nome e telefone quando o lead atender.', 'ok');
+  } catch (err) {
+    console.error(err);
+    liberarRecursos();
+    $('btnIniciar').disabled = false;
+    status(mensagemErro(err), 'erro');
+  }
+}
+
+function criarCanal(nome, stream) {
+  const fonte = estado.ctx.createMediaStreamSource(stream);
+  const analisador = estado.ctx.createAnalyser();
+  analisador.fftSize = 2048;
+  // Ganho zero: mantém o analisador processando sem tocar o som de novo
+  const mudo = estado.ctx.createGain();
+  mudo.gain.value = 0;
+  fonte.connect(analisador);
+  analisador.connect(mudo);
+  mudo.connect(estado.ctx.destination);
+
+  const canal = { nome, stream, analisador, buf: new Float32Array(analisador.fftSize), teveVoz: false, rec: null, timer: null };
+
+  // Medidor de nível + detecção simples de voz
+  canal.medidor = setInterval(() => {
+    analisador.getFloatTimeDomainData(canal.buf);
+    let soma = 0;
+    for (let i = 0; i < canal.buf.length; i++) soma += canal.buf[i] * canal.buf[i];
+    const rms = Math.sqrt(soma / canal.buf.length);
+    canal.nivel = rms;
+    if (rms > CFG.LIMIAR_VOZ) canal.teveVoz = true;
+    $('nivel-' + nome).style.width = Math.min(100, rms * 400) + '%';
+  }, 100);
+
+  estado.canais.push(canal);
+}
+
+/**
+ * Grava a ligação inteira num único arquivo estéreo:
+ * canal esquerdo = SDR (microfone), canal direito = Lead (aba da Clint).
+ */
+function iniciarGravacaoCompleta(streamMic, streamAba) {
+  const ctx = estado.ctx;
+  const juncao = ctx.createChannelMerger(2);
+  ctx.createMediaStreamSource(streamMic).connect(juncao, 0, 0);
+  ctx.createMediaStreamSource(streamAba).connect(juncao, 0, 1);
+  const destino = ctx.createMediaStreamDestination();
+  juncao.connect(destino);
+
+  const mime = escolherMime();
+  const rec = new MediaRecorder(destino.stream, mime ? { mimeType: mime, audioBitsPerSecond: CFG.BITRATE_AUDIO } : undefined);
+  const partes = [];
+  let terminou;
+  const g = { rec, mime: rec.mimeType || mime || 'audio/webm', pronto: new Promise(r => { terminou = r; }) };
+
+  rec.ondataavailable = e => { if (e.data && e.data.size) partes.push(e.data); };
+  rec.onstop = () => terminou(new Blob(partes, { type: g.mime }));
+  rec.start(10000);  // entrega pedaços a cada 10 s, para não perder tudo se algo travar
+  estado.gravacao = g;
+}
+
+/* ============================== Blocos para transcrição ============================== */
+/**
+ * Grava cada canal (SDR e Lead) em arquivos separados, em blocos de até CFG.BLOCO_MS.
+ * Blocos que terminam durante a ligação são transcritos em segundo plano;
+ * o último é transcrito ao salvar, junto com o resumo para o closer.
+ */
+function iniciarBloco() {
+  if (!estado.ativo) return;
+  const mime = escolherMime();
+  const bloco = {
+    offset: (performance.now() - estado.inicio) / 1000,
+    recs: {}, partes: { SDR: [], Lead: [] }, mime: mime || 'audio/webm'
+  };
+  estado.canais.forEach(c => {
+    c.teveVoz = false;
+    const rec = new MediaRecorder(c.stream, mime ? { mimeType: mime, audioBitsPerSecond: CFG.BITRATE } : undefined);
+    rec.ondataavailable = e => { if (e.data && e.data.size) bloco.partes[c.nome].push(e.data); };
+    bloco.mime = rec.mimeType || bloco.mime;
+    rec.start();
+    bloco.recs[c.nome] = rec;
+  });
+  bloco.timer = setTimeout(rotacionarBloco, CFG.BLOCO_MS);
+  estado.bloco = bloco;
+}
+
+/** Fecha o bloco atual e devolve (Promise) os áudios dos dois canais. */
+function fecharBloco() {
+  const bloco = estado.bloco;
+  if (!bloco) return Promise.resolve(null);
+  estado.bloco = null;
+  clearTimeout(bloco.timer);
+  const teveVoz = estado.canais.some(c => c.teveVoz);
+  const duracao = (performance.now() - estado.inicio) / 1000 - bloco.offset;
+  const paradas = Object.values(bloco.recs).map(rec => new Promise(ok => {
+    if (rec.state === 'inactive') return ok();
+    rec.onstop = () => ok();
+    rec.stop();
+  }));
+  return Promise.all(paradas).then(() => ({
+    offset: bloco.offset, duracao, teveVoz, mime: bloco.mime,
+    SDR: new Blob(bloco.partes.SDR, { type: bloco.mime }),
+    Lead: new Blob(bloco.partes.Lead, { type: bloco.mime })
+  }));
+}
+
+/** Ligação longa: fecha o bloco, começa o próximo e transcreve o fechado em segundo plano. */
+async function rotacionarBloco() {
+  const fechado = fecharBloco();
+  iniciarBloco();
+  const b = await fechado;
+  if (b && b.teveVoz && !estado.descartada) enfileirarBloco(b, false);
+}
+
+/** Os blocos são transcritos em ordem (o último precisa do texto dos anteriores para o resumo). */
+function enfileirarBloco(b, ultimo) {
+  estado.fila = estado.fila.then(() => transcreverBloco(b, ultimo));
+  return estado.fila;
+}
+
+async function transcreverBloco(b, ultimo) {
+  const chamada = estado.chamadaId;
+  // Sem voz no bloco: só vale a pena chamar o Gemini se for o último e já houver texto para resumir
+  if (!b.teveVoz && !(ultimo && estado.segmentos.length)) return;
+
+  estado.pendentes++;
+  atualizarFila();
+  try {
+    const payload = {
+      mime: b.mime, offset: b.offset, duracao: b.duracao, ultimo,
+      sdrBase64: b.teveVoz && b.SDR.size ? await blobParaBase64(b.SDR) : '',
+      leadBase64: b.teveVoz && b.Lead.size ? await blobParaBase64(b.Lead) : '',
+      textoAnterior: ultimo ? textoTranscricao() : '',
+      contexto: ultimo && estado.meta ? { lead: estado.meta.lead, sdr: estado.meta.sdr } : null
+    };
+    let ultimoErro;
+    for (let tentativa = 1; tentativa <= 4; tentativa++) {
+      try {
+        const r = await chamarGAS('transcreverBloco', payload);
+        if (chamada !== estado.chamadaId || estado.descartada) return;   // ligação descartada
+        (r.segmentos || []).forEach(t => estado.segmentos.push(t));
+        if (r.resumo) estado.meta.resumo = r.resumo;
+        guardarBackup();
+        renderizar();
+        return;
+      } catch (err) {
+        ultimoErro = err;
+        const limite = /LIMITE_GRATUITO|429/.test(String(err && err.message || err));
+        if (limite) status('Limite gratuito do Gemini atingido; aguardando para tentar de novo…');
+        await esperar(limite ? 30000 * tentativa : 3000 * tentativa);
+      }
+    }
+    if (chamada !== estado.chamadaId || estado.descartada) return;
+    estado.erros++;
+    console.error(ultimoErro);
+    status('Parte da transcrição falhou: ' + (ultimoErro.message || ultimoErro), 'erro');
+  } finally {
+    estado.pendentes--;
+    atualizarFila();
+  }
+}
+
+/** Texto já transcrito, em ordem, para o resumo da ligação inteira. */
+function textoTranscricao() {
+  return [...estado.segmentos].sort((a, b) => a.inicio - b.inicio)
+    .map(s => `[${mmss(s.inicio)}] ${s.falante}: ${s.texto}`).join('\n');
+}
+
+async function parar() {
+  if (!estado.ativo) return;
+  estado.ativo = false;
+  $('btnParar').disabled = true;
+  $('btnDescartar').hidden = true;   // volta a aparecer se a ligação ficar esperando dados
+  clearInterval(estado.relogio);
+  const duracaoSeg = Math.round((performance.now() - estado.inicio) / 1000);
+
+  // Fecha o último bloco; ele é transcrito ao salvar, junto com o resumo
+  estado.blocoFinal = estado.transcrever ? await fecharBloco() : null;
+  let blobAudio = null;
+  if (estado.gravacao) {
+    if (estado.gravacao.rec.state !== 'inactive') estado.gravacao.rec.stop();
+    blobAudio = await estado.gravacao.pronto;
+    estado.gravacao = null;
+  }
+
+  liberarRecursos();
+
+  estado.meta.duracaoSeg = duracaoSeg;
+  estado.blobAudio = blobAudio;
+  guardarBackup();
+
+  if ($('sdr').value && $('lead').value.trim()) return finalizar();
+
+  // Falta algum dado: a gravação já terminou, mas o salvamento espera o SDR
+  estado.aguardandoDados = true;
+  $('btnSalvar').hidden = false;
+  $('btnDescartar').hidden = false;
+  const falta = !$('sdr').value ? 'Selecione o SDR' : 'Preencha o nome do lead';
+  status('Ligação encerrada. ' + falta + ' e clique em "Salvar ligação".', 'erro');
+  (!$('sdr').value ? $('sdr') : $('lead')).focus();
+}
+
+/** Valida os dados finais e salva o áudio no Drive e a transcrição no Docs. */
+async function finalizar() {
+  if (!$('sdr').value) {
+    status('Selecione o SDR para salvar a ligação.', 'erro');
+    $('sdr').focus();
+    return;
+  }
+  let lead = $('lead').value.trim();
+  if (!lead) {
+    if (!confirmar('O nome do lead está vazio. Salvar como "Lead sem nome"?')) { $('lead').focus(); return; }
+    lead = 'Lead sem nome';
+  }
+
+  estado.aguardandoDados = false;
+  $('btnSalvar').hidden = true;
+  $('btnDescartar').hidden = true;
+  travarFormulario(true);
+  Object.assign(estado.meta, { lead, telefone: $('telefone').value.trim(), sdr: $('sdr').value });
+
+  const blobAudio = estado.blobAudio;
+  estado.blobAudio = null;
+  if (blobAudio && blobAudio.size) {
+    oferecerDownload(blobAudio);
+    try {
+      estado.meta.audio = await enviarAudioDrive(blobAudio);
+    } catch (err) {
+      console.error(err);
+      estado.meta.audioErro = String(err.message || err);
+    }
+  }
+  if (estado.transcrever) {
+    status('Transcrevendo e resumindo a ligação…');
+    const b = estado.blocoFinal;
+    estado.blocoFinal = null;
+    if (b) enfileirarBloco(b, true);
+    await estado.fila;   // espera também blocos anteriores que ainda estejam em andamento
+  }
+  guardarBackup();
+  await salvar({ ...estado.meta, segmentos: estado.segmentos });
+  if (estado.meta.audioErro) {
+    $('status').insertAdjacentText('beforeend', ' O áudio não foi para o Drive (' + estado.meta.audioErro + '); use "Baixar áudio".');
+  }
+
+  // A próxima ligação começa pelo botão "Nova chamada" (que limpa a tela);
+  // ao salvar, cada ligação vira uma nova guia no Docs.
+  $('btnNova').hidden = false;
+  $('btnNova').focus();
+}
+
+/** Encerra (se estiver gravando) e joga fora a ligação: nada vai para o Drive nem para o Docs. */
+function descartar() {
+  if (!estado.ativo && !estado.aguardandoDados) return;
+  if (!confirmar('Descartar esta ligação? O áudio e a transcrição NÃO serão salvos.')) return;
+
+  estado.descartada = true;
+  estado.chamadaId++;   // respostas que ainda chegarem serão ignoradas
+
+  if (estado.ativo) {
+    estado.ativo = false;
+    clearInterval(estado.relogio);
+    fecharBloco();
+    if (estado.gravacao && estado.gravacao.rec.state !== 'inactive') estado.gravacao.rec.stop();
+    estado.gravacao = null;
+    liberarRecursos();
+  }
+
+  estado.aguardandoDados = false;
+  estado.blobAudio = null;
+  estado.blocoFinal = null;
+  estado.segmentos = [];
+  limparBackup();
+
+  $('btnParar').disabled = true;
+  $('btnSalvar').hidden = true;
+  $('btnDescartar').hidden = true;
+  $('fila').textContent = '';
+  $('transcricao').innerHTML = '<p class="vazio">Ligação descartada.</p>';
+  travarFormulario(true);
+  status('Ligação descartada. Nada foi salvo.');
+  $('btnNova').hidden = false;
+  $('btnNova').focus();
+}
+
+/** Limpa a tela para a próxima ligação, mantendo o SDR selecionado. */
+function novaChamada() {
+  if (estado.ativo || estado.aguardandoDados || (estado.pendentes && !estado.descartada)) return;
+  const baixar = $('btnBaixar');
+  if (estado.meta && estado.meta.audioErro && !baixar.hidden &&
+      !confirmar('O áudio desta ligação não foi para o Drive. Já baixou o arquivo? Ao continuar, o botão "Baixar áudio" some.')) {
+    return;
+  }
+  if (baixar.href && baixar.href.startsWith('blob:')) URL.revokeObjectURL(baixar.href);
+  baixar.removeAttribute('href');
+  baixar.hidden = true;
+
+  $('lead').value = '';
+  $('telefone').value = '';
+  $('tempo').textContent = '00:00';
+  $('fila').textContent = '';
+  $('transcricao').innerHTML = '<p class="vazio">A transcrição e o resumo para o closer são feitos ao encerrar a ligação.</p>';
+  estado.segmentos = [];
+  estado.meta = null;
+  estado.erros = 0;
+
+  travarFormulario(false);
+  $('btnNova').hidden = true;
+  $('btnIniciar').disabled = false;
+  status('Pronto para a próxima ligação. A transcrição será salva numa nova guia.');
+  $('lead').focus();
+}
+
+async function salvar(payload) {
+  status('Salvando no Google Docs…');
+  try {
+    const r = await chamarGAS('salvarTranscricao', payload);
+    limparBackup();
+    $('btnRecuperar').hidden = true;
+    const avisoErros = estado.erros ? ' (parte da transcrição falhou; o áudio está salvo)' : '';
+    const linkAudio = payload.audio ? ' · <a href="' + payload.audio.url + '" target="_blank" rel="noopener">Ouvir o áudio</a>' : '';
+    $('status').className = 'ok';
+    $('status').innerHTML = 'Salvo' + avisoErros + '. <a href="' + r.url + '" target="_blank" rel="noopener">Abrir a guia no Docs</a>' + linkAudio;
+  } catch (err) {
+    console.error(err);
+    status('Erro ao salvar: ' + (err.message || err) + ' — a transcrição ficou guardada neste navegador.', 'erro');
+    $('btnRecuperar').hidden = false;
+  }
+}
+
+function liberarRecursos() {
+  estado.canais.forEach(c => { clearInterval(c.medidor); clearTimeout(c.timer); });
+  estado.streams.forEach(s => s.getTracks().forEach(t => t.stop()));
+  if (estado.ctx && estado.ctx.state !== 'closed') estado.ctx.close().catch(() => {});
+  estado.canais = [];
+  estado.streams = [];
+  estado.ctx = null;
+  ['SDR', 'Lead'].forEach(n => $('nivel-' + n).style.width = '0');
+}
+
+/* ============================== Áudio no Google Drive ============================== */
+/** Envia o arquivo em partes (upload retomável do Drive) e devolve { id, url }. */
+async function enviarAudioDrive(blob) {
+  const nome = nomeArquivo(blob.type);
+  status('Enviando o áudio para o Google Drive…');
+  const sessao = await chamarGAS('iniciarUploadAudio', { nome, mime: blob.type.split(';')[0], tamanho: blob.size });
+
+  for (let inicio = 0; inicio < blob.size; inicio += CFG.PARTE_UPLOAD) {
+    const parte = blob.slice(inicio, Math.min(inicio + CFG.PARTE_UPLOAD, blob.size));
+    const base64 = await blobParaBase64(parte);
+    let r, ultimoErro;
+    for (let tentativa = 1; tentativa <= 3; tentativa++) {
+      try {
+        r = await chamarGAS('enviarParteAudio', { url: sessao.url, base64, inicio, total: blob.size });
+        ultimoErro = null;
+        break;
+      } catch (err) { ultimoErro = err; await esperar(2000 * tentativa); }
+    }
+    if (ultimoErro) throw ultimoErro;
+    const pct = Math.round(Math.min(100, (inicio + parte.size) / blob.size * 100));
+    status('Enviando o áudio para o Google Drive… ' + pct + '%');
+    if (r && r.completo) return { id: r.id, url: r.url };
+  }
+  throw new Error('o Drive não confirmou o fim do envio');
+}
+
+function nomeArquivo(mime) {
+  const d = estado.inicioData || new Date();
+  const p = n => String(n).padStart(2, '0');
+  const data = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}h${p(d.getMinutes())}`;
+  const lead = (estado.meta && estado.meta.lead || 'Lead').replace(/[\\/:*?"<>|]/g, '').trim();
+  return `${data} - ${lead}.${/ogg/.test(mime) ? 'ogg' : 'webm'}`;
+}
+
+/** Deixa o áudio disponível para download local, como garantia. */
+function oferecerDownload(blob) {
+  const a = $('btnBaixar');
+  if (a.href && a.href.startsWith('blob:')) URL.revokeObjectURL(a.href);
+  a.href = URL.createObjectURL(blob);
+  a.download = nomeArquivo(blob.type);
+  a.hidden = false;
+}
+
+/* ============================== Comunicação com o GAS ============================== */
+const CHAVE_CODIGO = 'gravador_codigo_acesso';
+
+function lerCodigo() {
+  try { return localStorage.getItem(CHAVE_CODIGO) || ''; } catch (e) { return ''; }
+}
+function guardarCodigo(c) {
+  try { c ? localStorage.setItem(CHAVE_CODIGO, c) : localStorage.removeItem(CHAVE_CODIGO); } catch (e) {}
+}
+
+/**
+ * Chama uma função do Apps Script pelo doPost do web app.
+ * Content-Type text/plain evita a verificação prévia de CORS, que o Apps Script não responde.
+ */
+async function chamarGAS(fn, payload, codigo) {
+  if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(CFG.GAS_URL)) {
+    throw new Error('CFG.GAS_URL não configurado no index.html.');
+  }
+  let resp;
+  try {
+    resp = await fetch(CFG.GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ fn, payload, codigo: codigo || lerCodigo() })
+    });
+  } catch (e) {
+    throw new Error('sem conexão com o Apps Script (' + (e.message || e) + ')');
+  }
+  let j;
+  try { j = await resp.json(); }
+  catch (e) { throw new Error('resposta inesperada do Apps Script (HTTP ' + resp.status + '). Confira se a implantação está com acesso "Qualquer pessoa".'); }
+  if (!j.ok) {
+    if (j.erro === 'CODIGO_INVALIDO') { guardarCodigo(''); mostrarAcesso('Código de acesso inválido. Digite de novo.'); }
+    throw new Error(j.erro === 'CODIGO_INVALIDO' ? 'código de acesso inválido' : j.erro);
+  }
+  return j.data;
+}
+
+function mostrarAcesso(msg) {
+  $('cardAcesso').hidden = false;
+  $('btnIniciar').disabled = true;
+  if (msg) status(msg, 'erro');
+  $('codigoAcesso').focus();
+}
+
+async function entrar() {
+  const codigo = $('codigoAcesso').value.trim();
+  if (!codigo) return status('Digite o código de acesso.', 'erro');
+  $('btnEntrar').disabled = true;
+  status('Verificando o código…');
+  try {
+    await chamarGAS('validarCodigo', {}, codigo);
+    guardarCodigo(codigo);
+    $('codigoAcesso').value = '';
+    $('cardAcesso').hidden = true;
+    if (!estado.ativo && $('btnNova').hidden) $('btnIniciar').disabled = false;
+    status('Pronto. Use fone de ouvido para o microfone não captar a voz do lead.', 'ok');
+  } catch (err) {
+    status('Não foi possível entrar: ' + (err.message || err), 'erro');
+  } finally {
+    $('btnEntrar').disabled = false;
+  }
+}
+
+/* ============================== Interface ============================== */
+function renderizar() {
+  const lista = [...estado.segmentos].sort((a, b) => a.inicio - b.inicio);
+  const box = $('transcricao');
+  const noFim = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  box.innerHTML = '';
+
+  // Resumo para o closer (vem com a última parte da transcrição)
+  const r = estado.meta && estado.meta.resumo;
+  if (r) {
+    const d = document.createElement('div');
+    d.className = 'resumo';
+    const h = document.createElement('h3'); h.textContent = 'Resumo para o closer';
+    d.appendChild(h);
+    [['Interesse', r.interesse], ['Próximo passo', r.proximo_passo]].forEach(([rot, val]) => {
+      if (!val) return;
+      const p = document.createElement('p');
+      const b = document.createElement('strong'); b.textContent = rot + ': ';
+      p.append(b, document.createTextNode(val));
+      d.appendChild(p);
+    });
+    if (r.pontos && r.pontos.length) {
+      const ul = document.createElement('ul');
+      r.pontos.forEach(t => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+      d.appendChild(ul);
+    }
+    box.appendChild(d);
+  }
+
+  if (!lista.length) {
+    box.insertAdjacentHTML('beforeend', '<p class="vazio">Nenhuma fala transcrita.</p>');
+    return;
+  }
+  lista.forEach(s => {
+    const p = document.createElement('p');
+    const t = document.createElement('span'); t.className = 't'; t.textContent = mmss(s.inicio);
+    const f = document.createElement('span'); f.className = 'f-' + s.falante; f.textContent = s.falante + ': ';
+    p.append(t, f, document.createTextNode(s.texto));
+    box.appendChild(p);
+  });
+  if (noFim) box.scrollTop = box.scrollHeight;
+}
+
+function atualizarFila() {
+  $('fila').textContent = estado.pendentes ? 'Transcrevendo com o Gemini…' : '';
+}
+
+function travarFormulario(travar) {
+  ['lead', 'telefone', 'sdr', 'transcrever'].forEach(id => $(id).disabled = travar);
+}
+
+function status(msg, tipo) {
+  $('status').textContent = msg;
+  $('status').className = tipo || '';
+}
+
+function mensagemErro(err) {
+  const bloqueadoNoIframe = politicaBloqueada().length > 0;
+  switch (err && err.name) {
+    case 'NotAllowedError':
+      return bloqueadoNoIframe
+        ? 'O navegador bloqueou microfone/aba nesta janela. Veja o aviso acima.'
+        : 'Permissão negada ou compartilhamento cancelado. Libere o microfone no ícone de cadeado da barra de endereço.';
+    case 'NotFoundError': return 'Nenhum microfone encontrado.';
+    case 'NotReadableError': return 'O microfone está em uso por outro programa.';
+    case 'InvalidStateError': return 'Clique em "Iniciar gravação" novamente.';
+    default: return (err && err.message) || String(err);
+  }
+}
+
+function politicaBloqueada() {
+  const pol = document.permissionsPolicy || document.featurePolicy;
+  if (!pol || !pol.allowsFeature) return [];
+  return ['microphone', 'display-capture'].filter(f => !pol.allowsFeature(f));
+}
+
+function verificarAmbiente() {
+  const avisos = [];
+  const falta = politicaBloqueada();
+  if (falta.length) {
+    avisos.push('O navegador não liberou ' + falta.join(' e ') + ' nesta página. ' +
+      'Abra o gravador direto pelo endereço do GitHub Pages, não dentro de outro site.');
+  }
+  if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(CFG.GAS_URL)) {
+    avisos.push('Falta configurar a URL do Apps Script (CFG.GAS_URL) no index.html.');
+  }
+  if (avisos.length) {
+    $('aviso').hidden = false;
+    $('aviso').textContent = avisos.join(' ');
+  }
+}
+
+/* ============================== PiP (janela sempre por cima) ============================== */
+/**
+ * Dois modos:
+ *  1. Completo (Document Picture-in-Picture, Chrome/Edge 116+): a interface inteira vai para
+ *     uma janela flutuante, com campos e botões clicáveis.
+ *  2. Reserva (PiP de vídeo, qualquer Chrome): um painel com cronômetro, níveis e última fala,
+ *     com o botão de desligar do próprio PiP para encerrar a gravação.
+ * A gravação continua nesta janela nos dois casos.
+ */
+const pipVideo = { video: null, canvas: null, timer: null };
+
+async function alternarPip() {
+  if (janelaPip) { janelaPip.close(); return; }
+  if (document.pictureInPictureElement) { await document.exitPictureInPicture().catch(() => {}); return; }
+
+  if ('documentPictureInPicture' in window) {
+    try { await abrirPipCompleto(); return; }
+    catch (err) { console.warn('PiP completo indisponível, usando o modo vídeo:', err); }
+  }
+  try {
+    await abrirPipVideo();
+  } catch (err) {
+    console.error(err);
+    status('Não foi possível abrir o PiP: ' + (err.message || err) + '. Atualize o Chrome e tente de novo.', 'erro');
+  }
+}
+
+async function abrirPipCompleto() {
+  const conteudo = document.querySelector('main');
+  janelaPip = await documentPictureInPicture.requestWindow({ width: 420, height: 620 });
+  document.querySelectorAll('style').forEach(el => janelaPip.document.head.appendChild(el.cloneNode(true)));
+  janelaPip.document.title = 'Gravador';
+  janelaPip.document.body.classList.add('modo-pip');
+  janelaPip.document.body.append(conteudo);
+  $('btnPip').textContent = 'Sair do PiP';
+
+  janelaPip.addEventListener('pagehide', () => {
+    document.body.prepend(conteudo);   // devolve a interface para esta janela
+    janelaPip = null;
+    $('btnPip').textContent = 'PiP';
+  });
+}
+
+async function abrirPipVideo() {
+  if (!document.pictureInPictureEnabled) throw new Error('o navegador não permite PiP');
+  if (!pipVideo.canvas) {
+    pipVideo.canvas = document.createElement('canvas');
+    pipVideo.canvas.width = 480;
+    pipVideo.canvas.height = 270;
+    const v = document.createElement('video');
+    v.muted = true;
+    v.playsInline = true;
+    v.style.cssText = 'position:fixed;left:-10px;top:-10px;width:1px;height:1px;opacity:0;pointer-events:none';
+    document.body.appendChild(v);
+    v.addEventListener('leavepictureinpicture', () => {
+      clearInterval(pipVideo.timer);
+      pipVideo.timer = null;
+      try { navigator.mediaSession.setActionHandler('hangup', null); } catch (e) {}
+      $('btnPip').textContent = 'PiP';
+    });
+    pipVideo.video = v;
+  }
+  desenharPip();
+  pipVideo.video.srcObject = pipVideo.canvas.captureStream(5);
+  await pipVideo.video.play();
+  await pipVideo.video.requestPictureInPicture();
+
+  pipVideo.timer = setInterval(desenharPip, 250);
+  // Botão "desligar" dentro do PiP encerra a gravação
+  try { navigator.mediaSession.setActionHandler('hangup', () => { if (estado.ativo) parar(); }); } catch (e) {}
+  $('btnPip').textContent = 'Sair do PiP';
+}
+
+/** Desenha o painel do PiP de vídeo. */
+function desenharPip() {
+  const c = pipVideo.canvas, g = c.getContext('2d');
+  const W = c.width, H = c.height;
+  g.fillStyle = '#12141a';
+  g.fillRect(0, 0, W, H);
+
+  // Situação + cronômetro
+  const gravando = estado.ativo;
+  const piscar = Math.floor(Date.now() / 600) % 2 === 0;
+  g.fillStyle = gravando ? (piscar ? '#ef4444' : '#7f1d1d') : '#64748b';
+  g.beginPath(); g.arc(28, 34, 9, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#e7e9ee';
+  g.font = '600 20px system-ui, sans-serif';
+  const situacao = gravando ? 'GRAVANDO' : (estado.aguardandoDados ? 'AGUARDANDO DADOS' : 'PARADO');
+  g.fillText(situacao, 46, 41);
+  g.font = '700 34px system-ui, sans-serif';
+  g.textAlign = 'right';
+  g.fillText($('tempo').textContent, W - 20, 46);
+  g.textAlign = 'left';
+
+  // Lead e SDR
+  g.font = '15px system-ui, sans-serif';
+  g.fillStyle = '#9aa3b2';
+  const lead = $('lead').value.trim() || 'Lead sem nome';
+  const sdr = $('sdr').value || 'SDR não selecionado';
+  g.fillText(cortar(g, lead + '  ·  ' + sdr, W - 40), 20, 78);
+
+  // Níveis
+  const canais = { SDR: 0, Lead: 0 };
+  estado.canais.forEach(cn => { canais[cn.nome] = cn.nivel || 0; });
+  [['SDR', '#7aa5f5', 108], ['Lead', '#4ade80', 140]].forEach(([nome, cor, y]) => {
+    g.fillStyle = '#e7e9ee';
+    g.font = '15px system-ui, sans-serif';
+    g.fillText(nome, 20, y + 12);
+    g.fillStyle = '#2c313c';
+    g.fillRect(80, y, W - 100, 14);
+    g.fillStyle = cor;
+    g.fillRect(80, y, (W - 100) * Math.min(1, canais[nome] * 4), 14);
+  });
+
+  // Última fala transcrita
+  const ultima = [...estado.segmentos].sort((a, b) => b.inicio - a.inicio)[0];
+  g.font = '15px system-ui, sans-serif';
+  if (ultima) {
+    g.fillStyle = ultima.falante === 'SDR' ? '#7aa5f5' : '#4ade80';
+    g.fillText(ultima.falante + ':', 20, 194);
+    g.fillStyle = '#e7e9ee';
+    quebrarTexto(g, ultima.texto, 20, 216, W - 40, 20, 2);
+  } else {
+    g.fillStyle = '#9aa3b2';
+    g.fillText(gravando ? 'Transcrição e resumo saem ao encerrar.' : 'Clique em Iniciar gravação na janela do gravador.', 20, 200);
+  }
+  if (gravando) {
+    g.fillStyle = '#9aa3b2';
+    g.font = '12px system-ui, sans-serif';
+    g.fillText('Botão de desligar do PiP = encerrar gravação', 20, H - 10);
+  }
+}
+
+function cortar(g, texto, largura) {
+  if (g.measureText(texto).width <= largura) return texto;
+  while (texto.length && g.measureText(texto + '…').width > largura) texto = texto.slice(0, -1);
+  return texto + '…';
+}
+
+function quebrarTexto(g, texto, x, y, largura, altura, maxLinhas) {
+  const palavras = texto.split(/\s+/);
+  let linha = '', n = 0;
+  for (let i = 0; i < palavras.length; i++) {
+    const teste = linha ? linha + ' ' + palavras[i] : palavras[i];
+    if (g.measureText(teste).width > largura && linha) {
+      n++;
+      if (n === maxLinhas) { g.fillText(cortar(g, linha + ' ' + palavras.slice(i).join(' '), largura), x, y); return; }
+      g.fillText(linha, x, y);
+      y += altura;
+      linha = palavras[i];
+    } else {
+      linha = teste;
+    }
+  }
+  if (linha) g.fillText(linha, x, y);
+}
+
+/* ============================== Backup local ============================== */
+function guardarBackup() {
+  try {
+    localStorage.setItem(CHAVE_BACKUP, JSON.stringify({ ...estado.meta, segmentos: estado.segmentos }));
+  } catch (e) { /* armazenamento indisponível: segue sem backup */ }
+}
+function limparBackup() {
+  try { localStorage.removeItem(CHAVE_BACKUP); } catch (e) {}
+}
+function lerBackup() {
+  try { return JSON.parse(localStorage.getItem(CHAVE_BACKUP) || 'null'); } catch (e) { return null; }
+}
+
+/* ============================== Utilitários ============================== */
+function escolherMime() {
+  return ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm']
+    .find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+}
+function blobParaBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1]);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+function esperar(ms) { return new Promise(r => setTimeout(r, ms)); }
+function mmss(seg) {
+  seg = Math.max(0, Math.floor(seg));
+  const h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60), s = seg % 60;
+  const p = n => String(n).padStart(2, '0');
+  return h ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
+}
+
+/* ============================== Inicialização ============================== */
+$('btnIniciar').addEventListener('click', iniciar);
+$('btnParar').addEventListener('click', parar);
+$('btnDescartar').addEventListener('click', descartar);
+$('btnNova').addEventListener('click', novaChamada);
+$('btnPip').addEventListener('click', alternarPip);
+$('btnSalvar').addEventListener('click', finalizar);
+$('sdr').addEventListener('change', () => {
+  try { localStorage.setItem('gravador_sdr', $('sdr').value); } catch (e) {}
+});
+try {
+  const sdrSalvo = localStorage.getItem('gravador_sdr');
+  if (sdrSalvo && [...$('sdr').options].some(o => o.value === sdrSalvo)) $('sdr').value = sdrSalvo;
+} catch (e) {}
+
+$('btnRecuperar').addEventListener('click', () => {
+  const pendente = lerBackup();
+  if (pendente) salvar(pendente);
+});
+window.addEventListener('beforeunload', e => {
+  if (estado.ativo || estado.pendentes || estado.aguardandoDados) { e.preventDefault(); e.returnValue = ''; }
+});
+
+$('btnEntrar').addEventListener('click', entrar);
+$('codigoAcesso').addEventListener('keydown', e => { if (e.key === 'Enter') entrar(); });
+$('lnkTrocarCodigo').addEventListener('click', e => {
+  e.preventDefault();
+  if (estado.ativo) return;
+  guardarCodigo('');
+  mostrarAcesso();
+});
+
+verificarAmbiente();
+if (!lerCodigo()) mostrarAcesso();
+if (lerBackup()) {
+  $('btnRecuperar').hidden = false;
+  status('Há uma transcrição de uma ligação anterior que não foi salva.', 'erro');
+}
+</script>
+</body>
+</html>
