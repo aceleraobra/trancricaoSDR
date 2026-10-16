@@ -47,6 +47,8 @@
     a.botao { display: inline-block; text-decoration: none; font-weight: 600; border-radius: 8px; padding: 10px 16px; }
     .secundario { background: transparent; color: var(--primaria); border: 1px solid var(--borda); }
     #tempo { font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 600; margin-left: auto; }
+    #conexao { margin: 12px 0 0; }
+    #conexao.ok { color: var(--ok); }
     #status { margin: 12px 0 0; font-size: 14px; color: var(--suave); }
     #status.erro { color: var(--perigo); }
     #status.ok { color: var(--ok); }
@@ -123,9 +125,11 @@
       <button id="btnNova" hidden>Nova chamada</button>
       <button id="btnRecuperar" class="secundario" hidden>Salvar transcrição pendente</button>
       <a id="btnBaixar" class="secundario botao" hidden download>Baixar áudio</a>
+      <button id="btnAba" class="secundario" title="Escolher qual aba do navegador é a da Clint">Conectar aba</button>
       <button id="btnPip" class="secundario" title="Mantém o gravador por cima de todas as janelas">PiP</button>
       <span id="tempo">00:00</span>
     </div>
+    <p id="conexao" class="dica">Aba da Clint: não conectada. Ela é conectada ao iniciar a primeira gravação.</p>
     <p id="status">Pronto. Use fone de ouvido para o microfone não captar a voz do lead.</p>
     <p id="fila"></p>
   </section>
@@ -141,7 +145,8 @@
 /* ============================== Configuração ============================== */
 const CFG = {
   // URL do web app do Apps Script (Implantar → Gerenciar implantações → copiar a URL que termina em /exec)
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbzvCKX2dND_9b3sZhN8LK15ci4LxpJaYERZWAbJtaAFE_25rNooqbGLsn146aRp8jfenw/exec',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbzvCKX2dND_9b3sZhN8LK15ci4LxpJaYERZWAbJtaAFE_25rNooqbGLsn146aRp8jfenw/exec
+',
   // A transcrição é feita no fim. Ligações longas são divididas em blocos para não estourar
   // o tempo limite do Apps Script: ligação de até 10 min = 1 requisição ao Gemini.
   BLOCO_MS: 10 * 60 * 1000,
@@ -162,6 +167,9 @@ const estado = {
   pendentes: 0, erros: 0, relogio: null, meta: null,
   transcrever: true, gravacao: null,
   aguardandoDados: false, blobAudio: null,
+  aba: null,    // compartilhamento da aba da Clint: fica aberto entre uma ligação e outra
+  mic: null,    // microfone: aberto só durante a gravação
+  nos: [],      // nós de áudio da ligação atual (desligados ao encerrar)
   chamadaId: 0, descartada: false,
   bloco: null, blocoFinal: null, fila: Promise.resolve()
 };
@@ -173,35 +181,22 @@ async function iniciar() {
   }
 
   $('btnIniciar').disabled = true;
-  // Criado ainda dentro do clique para o navegador permitir o áudio
-  estado.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  // Criado ainda dentro do clique para o navegador permitir o áudio (e reaproveitado depois)
+  if (!estado.ctx || estado.ctx.state === 'closed') {
+    estado.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  }
 
   try {
-    // 1º a aba: a escolha de aba exige que o clique seja recente
-    status('Escolha a aba da Clint e marque "Compartilhar áudio da aba".');
-    const tela = await navigator.mediaDevices.getDisplayMedia({
-      video: { displaySurface: 'browser' },
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
-      preferCurrentTab: false,
-      selfBrowserSurface: 'exclude',
-      surfaceSwitching: 'exclude',
-      systemAudio: 'exclude'
-    });
-    estado.streams.push(tela);
+    // 1º a aba: só pede para escolher se ainda não houver uma aba conectada
+    if (!abaConectada()) await conectarAba();
+    const audioAba = estado.aba.getAudioTracks();
 
-    const audioAba = tela.getAudioTracks();
-    if (!audioAba.length) {
-      throw new Error('A aba foi compartilhada sem áudio. Tente de novo e marque "Compartilhar áudio da aba".');
-    }
-    // Se o usuário clicar em "Parar compartilhamento", encerra a gravação
-    tela.getTracks().forEach(t => t.addEventListener('ended', () => estado.ativo && parar()));
-
-    // 2º o microfone
-    status('Permita o acesso ao microfone.');
+    // 2º o microfone (o navegador lembra a permissão; aberto só durante a gravação)
+    status('Ligando o microfone…');
     const mic = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
     });
-    estado.streams.push(mic);
+    estado.mic = mic;
 
     await estado.ctx.resume();
 
@@ -232,6 +227,7 @@ async function iniciar() {
     }, 500);
 
     $('transcrever').disabled = true;   // nome, telefone e SDR continuam editáveis
+    $('btnAba').disabled = true;
     $('btnParar').disabled = false;
     $('btnDescartar').hidden = false;
     $('transcricao').innerHTML = estado.transcrever
@@ -257,6 +253,7 @@ function criarCanal(nome, stream) {
   fonte.connect(analisador);
   analisador.connect(mudo);
   mudo.connect(estado.ctx.destination);
+  estado.nos.push(fonte, analisador, mudo);
 
   const canal = { nome, stream, analisador, buf: new Float32Array(analisador.fftSize), teveVoz: false, rec: null, timer: null };
 
@@ -281,10 +278,13 @@ function criarCanal(nome, stream) {
 function iniciarGravacaoCompleta(streamMic, streamAba) {
   const ctx = estado.ctx;
   const juncao = ctx.createChannelMerger(2);
-  ctx.createMediaStreamSource(streamMic).connect(juncao, 0, 0);
-  ctx.createMediaStreamSource(streamAba).connect(juncao, 0, 1);
+  const fonteMic = ctx.createMediaStreamSource(streamMic);
+  const fonteAba = ctx.createMediaStreamSource(streamAba);
+  fonteMic.connect(juncao, 0, 0);
+  fonteAba.connect(juncao, 0, 1);
   const destino = ctx.createMediaStreamDestination();
   juncao.connect(destino);
+  estado.nos.push(fonteMic, fonteAba, juncao, destino);
 
   const mime = escolherMime();
   const rec = new MediaRecorder(destino.stream, mime ? { mimeType: mime, audioBitsPerSecond: CFG.BITRATE_AUDIO } : undefined);
@@ -567,14 +567,81 @@ async function salvar(payload) {
   }
 }
 
+/** Libera o que é da ligação atual. A aba da Clint continua conectada para a próxima. */
 function liberarRecursos() {
   estado.canais.forEach(c => { clearInterval(c.medidor); clearTimeout(c.timer); });
-  estado.streams.forEach(s => s.getTracks().forEach(t => t.stop()));
-  if (estado.ctx && estado.ctx.state !== 'closed') estado.ctx.close().catch(() => {});
+  estado.nos.forEach(n => { try { n.disconnect(); } catch (e) {} });
+  if (estado.mic) estado.mic.getTracks().forEach(t => t.stop());
+  estado.mic = null;
+  estado.nos = [];
   estado.canais = [];
-  estado.streams = [];
-  estado.ctx = null;
   ['SDR', 'Lead'].forEach(n => $('nivel-' + n).style.width = '0');
+  $('btnAba').disabled = false;
+}
+
+/* ============================== Conexão com a aba da Clint ============================== */
+function abaConectada() {
+  const a = estado.aba;
+  return !!(a && a.getAudioTracks().some(t => t.readyState === 'live'));
+}
+
+/** Pede para escolher a aba da Clint. A conexão fica aberta até trocar, desconectar ou fechar o gravador. */
+async function conectarAba() {
+  status('Escolha a aba da Clint e marque "Compartilhar áudio da aba".');
+  const tela = await navigator.mediaDevices.getDisplayMedia({
+    video: { displaySurface: 'browser', frameRate: 1 },
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+    preferCurrentTab: false,
+    selfBrowserSurface: 'exclude',
+    surfaceSwitching: 'exclude',
+    systemAudio: 'exclude'
+  });
+  if (!tela.getAudioTracks().length) {
+    tela.getTracks().forEach(t => t.stop());
+    throw new Error('A aba foi compartilhada sem áudio. Tente de novo e marque "Compartilhar áudio da aba".');
+  }
+  // O vídeo da aba não é usado: reduz ao mínimo para poupar o computador
+  tela.getVideoTracks().forEach(t => { t.applyConstraints({ frameRate: 1, width: 320 }).catch(() => {}); });
+  // "Parar compartilhamento" na barra do Chrome (ou fechar a aba da Clint) desconecta
+  tela.getTracks().forEach(t => t.addEventListener('ended', () => abaDesconectada(tela)));
+  estado.aba = tela;
+  atualizarConexao();
+}
+
+function abaDesconectada(tela) {
+  if (estado.aba !== tela) return;   // já foi trocada
+  tela.getTracks().forEach(t => t.stop());
+  estado.aba = null;
+  atualizarConexao();
+  if (estado.ativo) {
+    parar();
+  } else {
+    status('A aba da Clint foi desconectada. Na próxima gravação, escolha a aba de novo.', 'erro');
+  }
+}
+
+/** Botão "Trocar aba" / "Conectar aba" (fora de uma gravação). */
+async function trocarAba() {
+  if (estado.ativo) return;
+  const anterior = estado.aba;
+  try {
+    await conectarAba();   // a nova conexão só substitui a anterior se der certo
+    if (anterior) anterior.getTracks().forEach(t => t.stop());
+    status('Aba da Clint conectada. Ela fica conectada para as próximas ligações.', 'ok');
+  } catch (err) {
+    estado.aba = anterior;
+    atualizarConexao();
+    status(mensagemErro(err), 'erro');
+  }
+}
+
+function atualizarConexao() {
+  const ok = abaConectada();
+  $('conexao').className = 'dica' + (ok ? ' ok' : '');
+  $('conexao').textContent = ok
+    ? 'Aba da Clint conectada ✓ (continua conectada entre as ligações)'
+    : 'Aba da Clint: não conectada. Ela é conectada ao iniciar a gravação.';
+  $('btnAba').textContent = ok ? 'Trocar aba' : 'Conectar aba';
 }
 
 /* ============================== Áudio no Google Drive ============================== */
@@ -972,6 +1039,7 @@ $('btnIniciar').addEventListener('click', iniciar);
 $('btnParar').addEventListener('click', parar);
 $('btnDescartar').addEventListener('click', descartar);
 $('btnNova').addEventListener('click', novaChamada);
+$('btnAba').addEventListener('click', trocarAba);
 $('btnPip').addEventListener('click', alternarPip);
 $('btnSalvar').addEventListener('click', finalizar);
 $('sdr').addEventListener('change', () => {
