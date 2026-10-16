@@ -25,7 +25,7 @@
     .grade { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     @media (max-width: 560px) { .grade { grid-template-columns: 1fr; } }
     label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--suave); }
-    input[type=text], input[type=tel], select {
+    input[type=text], select {
       font: inherit; color: var(--texto); background: var(--bg); border: 1px solid var(--borda);
       border-radius: 8px; padding: 9px 11px;
     }
@@ -98,7 +98,6 @@
   <section class="card">
     <div class="grade">
       <label>Nome do lead<input type="text" id="lead" autocomplete="off"></label>
-      <label>Telefone<input type="tel" id="telefone" autocomplete="off"></label>
       <label>SDR * <span class="dica">(obrigatório para salvar)</span>
         <select id="sdr">
           <option value="">Selecione…</option>
@@ -145,8 +144,7 @@
 /* ============================== Configuração ============================== */
 const CFG = {
   // URL do web app do Apps Script (Implantar → Gerenciar implantações → copiar a URL que termina em /exec)
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbzvCKX2dND_9b3sZhN8LK15ci4LxpJaYERZWAbJtaAFE_25rNooqbGLsn146aRp8jfenw/exec
-',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbzvCKX2dND_9b3sZhN8LK15ci4LxpJaYERZWAbJtaAFE_25rNooqbGLsn146aRp8jfenw/exec',
   // A transcrição é feita no fim. Ligações longas são divididas em blocos para não estourar
   // o tempo limite do Apps Script: ligação de até 10 min = 1 requisição ao Gemini.
   BLOCO_MS: 10 * 60 * 1000,
@@ -208,7 +206,7 @@ async function iniciar() {
     estado.transcrever = $('transcrever').checked;
     estado.chamadaId++;
     estado.descartada = false;
-    // Nome, telefone e SDR são lidos só ao salvar (podem ser preenchidos durante a ligação)
+    // Nome do lead e SDR são lidos só ao salvar (podem ser preenchidos durante a ligação)
     estado.meta = {
       inicioISO: estado.inicioData.toISOString(),
       transcrito: estado.transcrever
@@ -226,7 +224,7 @@ async function iniciar() {
       $('tempo').textContent = mmss((performance.now() - estado.inicio) / 1000);
     }, 500);
 
-    $('transcrever').disabled = true;   // nome, telefone e SDR continuam editáveis
+    $('transcrever').disabled = true;   // nome do lead e SDR continuam editáveis
     $('btnAba').disabled = true;
     $('btnParar').disabled = false;
     $('btnDescartar').hidden = false;
@@ -234,7 +232,7 @@ async function iniciar() {
       ? '<p class="vazio">Gravando… a transcrição e o resumo saem ao encerrar.</p>'
       : '<p class="vazio">Gravando só o áudio (sem transcrição).</p>';
     status('Gravando os dois canais.' +
-      ' Preencha nome e telefone quando o lead atender.', 'ok');
+      ' Preencha o nome do lead quando ele atender.', 'ok');
   } catch (err) {
     console.error(err);
     liberarRecursos();
@@ -456,7 +454,7 @@ async function finalizar() {
   $('btnSalvar').hidden = true;
   $('btnDescartar').hidden = true;
   travarFormulario(true);
-  Object.assign(estado.meta, { lead, telefone: $('telefone').value.trim(), sdr: $('sdr').value });
+  Object.assign(estado.meta, { lead, sdr: $('sdr').value });
 
   const blobAudio = estado.blobAudio;
   estado.blobAudio = null;
@@ -535,7 +533,6 @@ function novaChamada() {
   baixar.hidden = true;
 
   $('lead').value = '';
-  $('telefone').value = '';
   $('tempo').textContent = '00:00';
   $('fila').textContent = '';
   $('transcricao').innerHTML = '<p class="vazio">A transcrição e o resumo para o closer são feitos ao encerrar a ligação.</p>';
@@ -799,7 +796,7 @@ function atualizarFila() {
 }
 
 function travarFormulario(travar) {
-  ['lead', 'telefone', 'sdr', 'transcrever'].forEach(id => $(id).disabled = travar);
+  ['lead', 'sdr', 'transcrever'].forEach(id => $(id).disabled = travar);
 }
 
 function status(msg, tipo) {
