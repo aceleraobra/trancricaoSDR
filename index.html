@@ -41,6 +41,9 @@
     button:disabled { opacity: .45; cursor: not-allowed; }
     #btnIniciar { background: var(--primaria); color: #fff; }
     #btnParar { background: var(--perigo); color: #fff; }
+    .pausar { background: transparent; color: var(--texto); border: 1px solid var(--borda); }
+    .pausar.retomar { background: #b45309; color: #fff; border-color: #b45309; }
+    #tempo.pausado { color: #b45309; }
     #btnNova { background: var(--ok); color: #fff; }
     .descartar { background: transparent; color: var(--perigo); border: 1px solid var(--perigo); }
     #btnSalvar { background: var(--primaria); color: #fff; }
@@ -118,6 +121,7 @@
     <div class="medidor"><span>Lead (aba da Clint)</span><div class="barra"><div id="nivel-Lead"></div></div></div>
     <div class="acoes">
       <button id="btnIniciar">Iniciar gravação</button>
+      <button id="btnPausar" class="pausar" hidden>Pausar</button>
       <button id="btnParar" disabled>Encerrar e salvar</button>
       <button id="btnDescartar" class="descartar" hidden>Descartar</button>
       <button id="btnSalvar" hidden>Salvar ligação</button>
@@ -169,10 +173,17 @@ const estado = {
   mic: null,    // microfone: aberto só durante a gravação
   nos: [],      // nós de áudio da ligação atual (desligados ao encerrar)
   chamadaId: 0, descartada: false,
+  pausado: false, pausaInicio: 0, pausadoTotal: 0, pausas: 0,
   bloco: null, blocoFinal: null, fila: Promise.resolve()
 };
 
 /* ============================== Captura ============================== */
+/** Segundos efetivamente gravados (desconta as pausas). O áudio salvo e a transcrição usam esta escala. */
+function tempoGravado() {
+  const pausaAtual = estado.pausado ? performance.now() - estado.pausaInicio : 0;
+  return (performance.now() - estado.inicio - estado.pausadoTotal - pausaAtual) / 1000;
+}
+
 async function iniciar() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
     return status('Este navegador não suporta captura de aba. Use Chrome ou Edge no computador.', 'erro');
@@ -200,6 +211,9 @@ async function iniciar() {
 
     estado.ativo = true;
     estado.inicio = performance.now();
+    estado.pausado = false;
+    estado.pausadoTotal = 0;
+    estado.pausas = 0;
     estado.inicioData = new Date();
     estado.segmentos = [];
     estado.erros = 0;
@@ -221,13 +235,14 @@ async function iniciar() {
     if (estado.transcrever) iniciarBloco();
 
     estado.relogio = setInterval(() => {
-      $('tempo').textContent = mmss((performance.now() - estado.inicio) / 1000);
+      $('tempo').textContent = mmss(tempoGravado());
     }, 500);
 
     $('transcrever').disabled = true;   // nome do lead e SDR continuam editáveis
     $('btnAba').disabled = true;
     $('btnParar').disabled = false;
     $('btnDescartar').hidden = false;
+    $('btnPausar').hidden = false;
     $('transcricao').innerHTML = estado.transcrever
       ? '<p class="vazio">Gravando… a transcrição e o resumo saem ao encerrar.</p>'
       : '<p class="vazio">Gravando só o áudio (sem transcrição).</p>';
@@ -262,7 +277,7 @@ function criarCanal(nome, stream) {
     for (let i = 0; i < canal.buf.length; i++) soma += canal.buf[i] * canal.buf[i];
     const rms = Math.sqrt(soma / canal.buf.length);
     canal.nivel = rms;
-    if (rms > CFG.LIMIAR_VOZ) canal.teveVoz = true;
+    if (rms > CFG.LIMIAR_VOZ && !estado.pausado) canal.teveVoz = true;
     $('nivel-' + nome).style.width = Math.min(100, rms * 400) + '%';
   }, 100);
 
@@ -306,7 +321,7 @@ function iniciarBloco() {
   if (!estado.ativo) return;
   const mime = escolherMime();
   const bloco = {
-    offset: (performance.now() - estado.inicio) / 1000,
+    offset: tempoGravado(),
     recs: {}, partes: { SDR: [], Lead: [] }, mime: mime || 'audio/webm'
   };
   estado.canais.forEach(c => {
@@ -317,7 +332,9 @@ function iniciarBloco() {
     rec.start();
     bloco.recs[c.nome] = rec;
   });
-  bloco.timer = setTimeout(rotacionarBloco, CFG.BLOCO_MS);
+  bloco.restante = CFG.BLOCO_MS;
+  bloco.timerInicio = performance.now();
+  bloco.timer = setTimeout(rotacionarBloco, bloco.restante);
   estado.bloco = bloco;
 }
 
@@ -328,7 +345,7 @@ function fecharBloco() {
   estado.bloco = null;
   clearTimeout(bloco.timer);
   const teveVoz = estado.canais.some(c => c.teveVoz);
-  const duracao = (performance.now() - estado.inicio) / 1000 - bloco.offset;
+  const duracao = tempoGravado() - bloco.offset;
   const paradas = Object.values(bloco.recs).map(rec => new Promise(ok => {
     if (rec.state === 'inactive') return ok();
     rec.onstop = () => ok();
@@ -406,10 +423,11 @@ function textoTranscricao() {
 async function parar() {
   if (!estado.ativo) return;
   estado.ativo = false;
+  sairDaPausa();
   $('btnParar').disabled = true;
   $('btnDescartar').hidden = true;   // volta a aparecer se a ligação ficar esperando dados
   clearInterval(estado.relogio);
-  const duracaoSeg = Math.round((performance.now() - estado.inicio) / 1000);
+  const duracaoSeg = Math.round(tempoGravado());
 
   // Fecha o último bloco; ele é transcrito ao salvar, junto com o resumo
   estado.blocoFinal = estado.transcrever ? await fecharBloco() : null;
@@ -435,6 +453,60 @@ async function parar() {
   const falta = !$('sdr').value ? 'Selecione o SDR' : 'Preencha o nome do lead';
   status('Ligação encerrada. ' + falta + ' e clique em "Salvar ligação".', 'erro');
   (!$('sdr').value ? $('sdr') : $('lead')).focus();
+}
+
+/* ============================== Pausa ============================== */
+/** Pausa ou retoma a gravação (áudio completo e blocos de transcrição). */
+function alternarPausa() {
+  if (!estado.ativo) return;
+  const recs = gravadoresAtivos();
+  if (!estado.pausado) {
+    estado.pausado = true;
+    estado.pausaInicio = performance.now();
+    estado.pausas++;
+    recs.forEach(r => { if (r.state === 'recording') r.pause(); });
+    const b = estado.bloco;
+    if (b) {   // congela o tempo que falta para fechar o bloco
+      clearTimeout(b.timer);
+      b.restante = Math.max(1000, b.restante - (performance.now() - b.timerInicio));
+    }
+    $('btnPausar').textContent = 'Retomar';
+    $('btnPausar').classList.add('retomar');
+    $('tempo').classList.add('pausado');
+    status('Gravação pausada. Nada está sendo gravado ou transcrito.', 'erro');
+  } else {
+    estado.pausadoTotal += performance.now() - estado.pausaInicio;
+    estado.pausado = false;
+    recs.forEach(r => { if (r.state === 'paused') r.resume(); });
+    const b = estado.bloco;
+    if (b) {
+      b.timerInicio = performance.now();
+      b.timer = setTimeout(rotacionarBloco, b.restante);
+    }
+    $('btnPausar').textContent = 'Pausar';
+    $('btnPausar').classList.remove('retomar');
+    $('tempo').classList.remove('pausado');
+    status('Gravação retomada.', 'ok');
+  }
+}
+
+function gravadoresAtivos() {
+  const lista = [];
+  if (estado.gravacao) lista.push(estado.gravacao.rec);
+  if (estado.bloco) lista.push(...Object.values(estado.bloco.recs));
+  return lista;
+}
+
+/** Fecha a pausa (se houver) ao encerrar ou descartar; o tempo pausado não entra na duração. */
+function sairDaPausa() {
+  if (estado.pausado) {
+    estado.pausadoTotal += performance.now() - estado.pausaInicio;
+    estado.pausado = false;
+  }
+  $('btnPausar').hidden = true;
+  $('btnPausar').textContent = 'Pausar';
+  $('btnPausar').classList.remove('retomar');
+  $('tempo').classList.remove('pausado');
 }
 
 /** Valida os dados finais e salva o áudio no Drive e a transcrição no Docs. */
@@ -496,6 +568,7 @@ function descartar() {
 
   if (estado.ativo) {
     estado.ativo = false;
+    sairDaPausa();
     clearInterval(estado.relogio);
     fecharBloco();
     if (estado.gravacao && estado.gravacao.rec.state !== 'inactive') estado.gravacao.rec.stop();
@@ -923,11 +996,11 @@ function desenharPip() {
   // Situação + cronômetro
   const gravando = estado.ativo;
   const piscar = Math.floor(Date.now() / 600) % 2 === 0;
-  g.fillStyle = gravando ? (piscar ? '#ef4444' : '#7f1d1d') : '#64748b';
+  g.fillStyle = gravando ? (estado.pausado ? '#f59e0b' : (piscar ? '#ef4444' : '#7f1d1d')) : '#64748b';
   g.beginPath(); g.arc(28, 34, 9, 0, Math.PI * 2); g.fill();
   g.fillStyle = '#e7e9ee';
   g.font = '600 20px system-ui, sans-serif';
-  const situacao = gravando ? 'GRAVANDO' : (estado.aguardandoDados ? 'AGUARDANDO DADOS' : 'PARADO');
+  const situacao = gravando ? (estado.pausado ? 'PAUSADO' : 'GRAVANDO') : (estado.aguardandoDados ? 'AGUARDANDO DADOS' : 'PARADO');
   g.fillText(situacao, 46, 41);
   g.font = '700 34px system-ui, sans-serif';
   g.textAlign = 'right';
@@ -1034,6 +1107,7 @@ function mmss(seg) {
 /* ============================== Inicialização ============================== */
 $('btnIniciar').addEventListener('click', iniciar);
 $('btnParar').addEventListener('click', parar);
+$('btnPausar').addEventListener('click', alternarPausa);
 $('btnDescartar').addEventListener('click', descartar);
 $('btnNova').addEventListener('click', novaChamada);
 $('btnAba').addEventListener('click', trocarAba);
